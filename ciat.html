@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="it">
+
+	<head>
+	  <meta charset="UTF-8">
+	  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+	  <title>CIAT</title>
+	</head>
+	<body style="background-color: rgb(15, 15, 15); color: LimeGreen; font-size: 19px">
+	<pre>
+    -- ..    ..-. .- - .    ... -.-. .... .. ..-. ---    - ..- - - ..
+
+                          ████
+                         ░░███
+ █████ ███ █████  ██████  ░███   ██████   ██████  █████████████    ██████
+░░███ ░███░░███  ███░░███ ░███  ███░░███ ███░░███░░███░░███░░███  ███░░███
+ ░███ ░███ ░███ ░███████  ░███ ░███ ░░░ ░███ ░███ ░███ ░███ ░███ ░███████
+ ░░███████████  ░███░░░   ░███ ░███  ███░███ ░███ ░███ ░███ ░███ ░███░░░
+  ░░████░████   ░░██████  █████░░██████ ░░██████  █████░███ █████░░██████
+   ░░░░ ░░░░     ░░░░░░  ░░░░░  ░░░░░░   ░░░░░░  ░░░░░ ░░░ ░░░░░  ░░░░░░
+
+			  █████
+			 ░░███
+			 ███████    ██████
+			░░░███░    ███░░███
+			  ░███    ░███ ░███
+			  ░███ ███░███ ░███
+			  ░░█████ ░░██████
+			   ░░░░░   ░░░░░░
+
+
+	   █████████  █████   █████████   ███████████
+	  ███░░░░░███░░███   ███░░░░░███ ░█░░░███░░░█
+	 ███     ░░░  ░███  ░███    ░███ ░   ░███  ░
+	░███          ░███  ░███████████     ░███
+	░███          ░███  ░███░░░░░███     ░███
+	░░███     ███ ░███  ░███    ░███     ░███
+	 ░░█████████  █████ █████   █████    █████
+	  ░░░░░░░░░  ░░░░░ ░░░░░   ░░░░░    ░░░░░
+
+Valid irc command: /JOIN channelname
+                   /NICK nickname
+                   /PART [reason]
+                   /ME   action
+    -- ..    ..-. .- - .    ... -.-. .... .. ..-. ---    - ..- - - ..
+			<div id="textarea"></div>
+		</pre>
+		<div id="userinput">
+			<input type="text" onkeydown=sendmessage(event) id="txtmsg" size="100" required>
+		</div>
+		<br>
+		<script>
+			// da browser devi per forza usare i websocket
+			// quindi mosquitto.conf:
+			// protocol websockets
+			// allow_anonymous true
+			// listener 8883
+
+			
+			const BROKER = 'mqtt://192.168.1.2:8883'
+
+			const DEFAULT_CHAN = 'limbo' // no one can escape from limbo
+
+			const TIMEOUT_AFTER_PUBLISH = 2000
+			const TIMEOUT_CONNECTION    = 4000
+			
+			let client = null
+			let username = null
+			let nickname = null
+
+			let channel = DEFAULT_CHAN
+			const Command = {
+				Say : 'say',
+				Join: 'join',
+				Nick: 'nick',
+				Part: 'part',
+				Me:   'me'
+			}
+
+			window.addEventListener('beforeunload',  (event) => {
+				client.publish(channel, `>><b>${nickname}</b> left the chat`)
+				client.end()
+			})
+
+			document.addEventListener('DOMContentLoaded', (event) => {
+				document.getElementById('txtmsg').focus();
+
+				printf = function(txt, crlf = true) {
+					let textarea = document.getElementById('textarea');
+					textarea.innerHTML += txt
+					if (crlf == true) {
+						textarea.innerHTML += '<br>'
+					}
+					document.getElementById("userinput").scrollIntoView({behavior: "smooth", block: "start", inline: "nearest"})
+				}
+
+				let id = Math.floor(Math.random() * 9999) + 1
+				while (username = prompt('Il tuo username', 'AjejeBrazorf_' + id), username == null || username.trim() == "") {
+					alert('Username non valido')
+				}
+				
+				// per iniziare setto il nickname come lo username
+				nickname = username
+
+				printf(`>>hello ${nickname}`)
+				const OPT = {
+					clean: false,
+					connectTimeout: TIMEOUT_CONNECTION,
+					clientId: 'BN_ciat_' + username,
+					username: username,
+					password: 'BN_pwd'
+				}
+				client  = mqtt.connect(BROKER, OPT)
+
+				printf('>>connecting...', false)
+
+				client.on('connect', function () {
+					printf(' OK')
+					cmdJoin()
+				})
+
+				client.on('message', function (topic, message) {
+					printf(message.toString())
+				})
+			})
+
+			cmdJoin = function()
+			{
+				printf(`>>joining #${channel}...`, false)
+				client.subscribe(channel, function (err) {
+					if (!err) {
+						printf(' OK')
+						document.title = `${nickname} on #${channel}`
+						client.publish(channel, `>><b>${nickname}</b> has joined the #${channel}`)
+					} else {
+						printf(' ERROR')
+					}
+				})
+			}
+
+			getcommand = function (rawitem)
+			{
+				let item = rawitem.trim()
+				let param = ''
+
+				if (item.toUpperCase().startsWith('/PART ') || item.toUpperCase() =='/PART') {
+					// command: part
+					param = item.slice(6).trim()
+					return [Command.Part, param]
+
+				} else if (item.toUpperCase().startsWith('/NICK ') || item.toUpperCase() =='/NICK') {
+					// command: nick
+					param = item.slice(6).trim()
+					return [Command.Nick, param]
+
+				} else if (item.toUpperCase().startsWith('/JOIN ') || item.toUpperCase() =='/JOIN') {
+					// command: join
+					param = item.slice(6).trim()
+					return [Command.Join, param]
+
+				} else if (item.toUpperCase().startsWith('/ME ') || item.toUpperCase() =='/ME') {
+					// command: me
+					param = item.slice(4).trim()
+					return [Command.Me, param]
+
+				} else {
+					// say
+					param = item.slice(0).trim()
+					return [Command.Say, param]
+				}
+			}
+
+			sendmessage = function()
+			{
+				if (event.key == 'Enter') {
+					const input = document.getElementById('txtmsg')
+					let [cmd, param] = getcommand(input.value)
+
+					switch (cmd)
+					{
+						case Command.Part:
+							if (channel == DEFAULT_CHAN) {
+								alert (`you can't leave #${DEFAULT_CHAN}`)
+							} else {
+								// go away
+								if (param != '') {
+									client.publish(channel, `>><b>${nickname}</b> left the chat. Reason: ${param}`)
+								} else {
+									client.publish(channel, `>><b>${nickname}</b> left the chat. No Reason`)
+								}
+								// wait a bit for publish
+								setTimeout(function() {
+									// then unsubcribe
+									client.unsubscribe(channel)
+
+									// and rejoin the limbo channel
+									channel = DEFAULT_CHAN
+									cmdJoin()
+								}, TIMEOUT_AFTER_PUBLISH);
+							}
+							break
+
+						case Command.Nick:
+							if (param != '') {
+								client.publish(channel, `>><b>${nickname}</b> is now know as ${param}`)
+								nickname = param.trim()
+								document.title = `${nickname} on #${channel}`
+							} else {
+								alert (`invalid nickname`)
+							}
+							break
+
+						case Command.Join:
+							if (param != '') {
+								// leave from curr chan
+								client.publish(channel, `>><b>${nickname}</b> left the chat`)
+
+								// wait a bit for publish
+								setTimeout(function() {
+									// then unsubcribe
+									client.unsubscribe(channel)
+
+									// and rejoin the limbo channel
+									channel = param.trim()
+									cmdJoin()
+								}, TIMEOUT_AFTER_PUBLISH)
+							} else {
+								alert (`invalid channel name`)
+							}
+							break
+
+						case Command.Me:
+							if (param != '') {
+								client.publish(channel, `>>${nickname} ${param}`)
+							}
+							break
+
+						case Command.Say:
+						default:
+							if (param != '') {
+								client.publish(channel, `<b>${nickname}</b>: ${param}`)
+							}
+							break
+					}
+					// consuma il comando
+					input.value = ''
+				}
+			}
+		</script>
+	</body>
+</html>
