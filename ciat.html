@@ -38,16 +38,20 @@
 	 ░░█████████  █████ █████   █████    █████
 	  ░░░░░░░░░  ░░░░░ ░░░░░   ░░░░░    ░░░░░
 
-Valid irc command: /JOIN channelname
-                   /NICK nickname
-                   /PART [reason]
-                   /ME   action
+Valid irc command: /JOIN  channelname
+                   /NICK  nickname
+                   /PART  [reason]
+                   /ME    action
+                   /TOPIC [topic]
     -- ..    ..-. .- - .    ... -.-. .... .. ..-. ---    - ..- - - ..
-			<div id="textarea"></div>
+			<div id='textarea'></div>
 		</pre>
-		<div id="userinput">
-			<input type="text" onkeydown=sendmessage(event) id="txtmsg" size="100" required>
+		<div id='userinput'>
+			<input type='text' onkeydown=sendmessage(event) id='txtmsg' size='100' required>
+			<input id='filelist' type='file' accept='image/*' onchange='loadimg(event)' multiple>
 		</div>
+
+		<div id="preview"></div>
 		<br>
 		<script>
 			// da browser devi per forza usare i websocket
@@ -74,28 +78,67 @@ Valid irc command: /JOIN channelname
 				Join: 'join',
 				Nick: 'nick',
 				Part: 'part',
-				Me:   'me'
+				Me:   'me',
+				Topic:'topic'
+				
 			}
-
-			window.addEventListener('beforeunload',  (event) => {
+			const IMAGETAG  = '!IMAGE='
+			const IMAGESIZE = 100
+			
+			window.addEventListener('beforeunload', (event) => {
 				client.publish(channel, `>><b>${nickname}</b> left the chat`)
 				client.end()
 			})
 
+			function send(self) {
+				if (confirm(`Send ${self.title} on #${channel}?`)) {
+					client.publish(channel, `<b>${nickname}</b> has send ${self.title} on #${channel} ${IMAGETAG}${self.src}`)
+				}
+				
+			}
+
+			function loadimg(event) {
+				const files = document.getElementById('filelist').files
+				const preview = document.getElementById('preview')
+
+				function addpreview(file) {
+					if (/\.(jpe?g|png|gif)$/i.test(file.name)) {
+					  const reader = new FileReader();
+					  
+					  reader.addEventListener('load', (event) => {
+						  const image = new Image()
+						  image.height = IMAGESIZE
+						  image.title = file.name
+						  image.src = reader.result
+						  image.style.cssText += 'border:1px solid white'
+						  image.setAttribute('onclick', 'send(this)')
+						  preview.appendChild(image)
+					  }, false,);
+
+					  reader.readAsDataURL(file)
+					}
+				}				
+				
+				if (files) {
+					Array.prototype.forEach.call(files, addpreview);
+				}				
+			}
+			
 			document.addEventListener('DOMContentLoaded', (event) => {
+				
 				document.getElementById('txtmsg').focus();
 
 				printf = function(txt, crlf = true) {
-					let textarea = document.getElementById('textarea');
+					let textarea = document.getElementById('textarea')
 					textarea.innerHTML += txt
 					if (crlf == true) {
 						textarea.innerHTML += '<br>'
 					}
-					document.getElementById("userinput").scrollIntoView({behavior: "smooth", block: "start", inline: "nearest"})
+					document.getElementById('userinput').scrollIntoView({behavior: 'smooth', block: 'start', inline: 'nearest'})
 				}
 
 				let id = Math.floor(Math.random() * 9999) + 1
-				while (username = prompt('Il tuo username', 'AjejeBrazorf_' + id), username == null || username.trim() == "") {
+				while (username = prompt('Il tuo username', 'AjejeBrazorf_' + id), username == null || username.trim() == '') {
 					alert('Username non valido')
 				}
 				
@@ -121,6 +164,20 @@ Valid irc command: /JOIN channelname
 
 				client.on('message', function (topic, message) {
 					printf(message.toString())
+					
+					// decode data:image/ if any
+					const txt = message.toString()
+					let position = txt.search(IMAGETAG)
+					if (position > 0) {
+						const preview = document.getElementById('preview')
+						const image = new Image()
+						image.height = IMAGESIZE
+						image.title = `from #${channel}`
+						image.src = txt.slice(position + IMAGETAG.length)
+						image.style.cssText += 'border:1px solid red'
+						preview.appendChild(image)
+
+					}
 				})
 			})
 
@@ -162,6 +219,10 @@ Valid irc command: /JOIN channelname
 					// command: me
 					param = item.slice(4).trim()
 					return [Command.Me, param]
+				} else if (item.toUpperCase().startsWith('/TOPIC ') || item.toUpperCase() =='/TOPIC') {
+					// command: me
+					param = item.slice(6).trim()
+					return [Command.Topic, param]
 
 				} else {
 					// say
@@ -178,6 +239,10 @@ Valid irc command: /JOIN channelname
 
 					switch (cmd)
 					{
+						case Command.Topic:
+							client.publish(channel, `>><b>${nickname}</b> set new topic: ${param}`)
+							client.publish(channel, `>>#${channel} topic is:${param}`,  {retain: true})
+							break
 						case Command.Part:
 							if (channel == DEFAULT_CHAN) {
 								alert (`you can't leave #${DEFAULT_CHAN}`)
